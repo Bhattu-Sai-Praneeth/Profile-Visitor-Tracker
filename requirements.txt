@@ -4,3 +4,4 @@ altair
 pydeck
 folium 
 streamlit-folium
+gspread

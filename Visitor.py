@@ -1,8 +1,9 @@
 import streamlit as st
 import pandas as pd
 import altair as alt
-import pydeck as pdk
 from datetime import datetime
+from streamlit_folium import st_folium
+import folium
 
 # Page setup
 st.set_page_config(page_title="Visitor Analytics Dashboard", layout="wide")
@@ -118,9 +119,9 @@ with d2:
     browsers.columns = ['browser', 'visits']
     st.bar_chart(browsers.set_index('browser'))
 
-# Visitor map with full dataset and optional focus
+# Visitor map using Folium
 st.markdown("---")
-st.markdown("### Visitor Map (All + Individual Location)")
+st.markdown("### Visitor Map using Google-style View")
 
 df_map = df.dropna(subset=['lat', 'lon'])
 df_map['lat'] = pd.to_numeric(df_map['lat'], errors='coerce')
@@ -128,56 +129,16 @@ df_map['lon'] = pd.to_numeric(df_map['lon'], errors='coerce')
 df_map = df_map.dropna(subset=['lat', 'lon'])
 
 if not df_map.empty:
-    st.subheader("All Visitor Locations")
-    st.pydeck_chart(pdk.Deck(
-        map_style='mapbox://styles/mapbox/light-v9',
-        initial_view_state=pdk.ViewState(
-            latitude=df_map['lat'].mean(),
-            longitude=df_map['lon'].mean(),
-            zoom=1.5,
-            pitch=0,
-        ),
-        layers=[
-            pdk.Layer(
-                'ScatterplotLayer',
-                data=df_map,
-                get_position='[lon, lat]',
-                get_radius=60000,
-                get_fill_color='[200, 30, 0, 160]',
-                pickable=True,
-            ),
-        ],
-        tooltip={"text": "IP: {ip}\nCity: {city}\nCountry: {country}"}
-    ))
+    m = folium.Map(location=[df_map['lat'].mean(), df_map['lon'].mean()], zoom_start=2)
 
-    # Individual map zoom
-    st.subheader("View Individual Visitor Location")
-    unique_entries = df_map[['ip', 'timestamp']].astype(str)
-    unique_entries['label'] = unique_entries['ip'] + " — " + unique_entries['timestamp']
-    selected_label = st.selectbox("Select Visitor by IP & Time:", unique_entries['label'])
+    for _, row in df_map.iterrows():
+        folium.Marker(
+            location=[row['lat'], row['lon']],
+            tooltip=f"{row['ip']}\n{row.get('city', '')}, {row.get('country', '')}",
+            popup=f"<b>IP:</b> {row['ip']}<br><b>City:</b> {row.get('city', 'N/A')}<br><b>Country:</b> {row.get('country', 'N/A')}"
+        ).add_to(m)
 
-    selected_row = df_map[df_map['ip'] == selected_label.split(" — ")[0]].iloc[0]
-
-    st.pydeck_chart(pdk.Deck(
-        map_style='mapbox://styles/mapbox/streets-v11',
-        initial_view_state=pdk.ViewState(
-            latitude=selected_row['lat'],
-            longitude=selected_row['lon'],
-            zoom=6,
-            pitch=0,
-        ),
-        layers=[
-            pdk.Layer(
-                'ScatterplotLayer',
-                data=pd.DataFrame([selected_row]),
-                get_position='[lon, lat]',
-                get_radius=30000,
-                get_fill_color='[0, 128, 255, 160]',
-                pickable=True,
-            )
-        ],
-        tooltip={"text": f"IP: {selected_row['ip']}\nCity: {selected_row.get('city', 'N/A')}\nCountry: {selected_row.get('country', 'N/A')}"}
-    ))
+    st_data = st_folium(m, width=1000, height=500)
 else:
     st.info("No valid location data available.")
 

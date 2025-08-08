@@ -4,7 +4,8 @@ import altair as alt
 import pydeck as pdk
 
 # Replace with your Google Sheet CSV export URL:
-CSV_URL = "https://script.google.com/macros/s/AKfycbwPOo8O5XPwJPNIlNKQgybJ6o70SCR4dEZPCEbjU5gm_WYLica3XyJ4rmc1Yifo7oaL/exec"
+CSV_URL = "CSV_URL = "https://docs.google.com/spreadsheets/d/1GVzg4PtgfMFZZRA02MxXpZfBCLrcZhFOk-kIcU2vh0o/export?format=csv"
+"
 
 @st.cache_data(ttl=60)
 def load_data():

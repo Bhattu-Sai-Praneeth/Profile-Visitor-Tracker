@@ -118,28 +118,39 @@ with d2:
     browsers.columns = ['browser', 'visits']
     st.bar_chart(browsers.set_index('browser'))
 
-# Visitor map
+# Visitor map with individual point selection
 st.markdown("---")
-st.markdown("### Visitor Map")
+st.markdown("### Visitor Map (Individual Locations)")
 df_map = df.dropna(subset=['lat', 'lon'])
+
 if not df_map.empty:
+    selected_ip = st.selectbox("Select an IP to view its exact location:", df_map['ip'].unique())
+    selected_entry = df_map[df_map['ip'] == selected_ip].iloc[0]
+    selected_location = pd.DataFrame([{
+        "lat": selected_entry['lat'],
+        "lon": selected_entry['lon'],
+        "ip": selected_entry['ip'],
+        "city": selected_entry.get('city', 'Unknown'),
+        "country": selected_entry.get('country', 'Unknown')
+    }])
+
     st.pydeck_chart(pdk.Deck(
-        map_style='mapbox://styles/mapbox/light-v9',
+        map_style='mapbox://styles/mapbox/streets-v11',
         initial_view_state=pdk.ViewState(
-            latitude=df_map['lat'].mean(),
-            longitude=df_map['lon'].mean(),
-            zoom=1,
+            latitude=selected_entry['lat'],
+            longitude=selected_entry['lon'],
+            zoom=6,
             pitch=0,
         ),
         layers=[
             pdk.Layer(
                 'ScatterplotLayer',
-                data=df_map,
+                data=selected_location,
                 get_position='[lon, lat]',
-                get_radius=100000,
-                get_fill_color='[200, 30, 0, 160]',
+                get_radius=30000,
+                get_fill_color='[255, 0, 0, 160]',
                 pickable=True,
-            ),
+            )
         ],
         tooltip={"text": "IP: {ip}\nCity: {city}\nCountry: {country}"}
     ))

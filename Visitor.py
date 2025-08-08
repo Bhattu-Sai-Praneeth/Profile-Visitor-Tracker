@@ -1,148 +1,118 @@
 import streamlit as st
 import pandas as pd
 import altair as alt
-from datetime import datetime
-from streamlit_folium import st_folium
 import folium
+import requests
+from streamlit_folium import st_folium
+from datetime import datetime
 
 # Page setup
 st.set_page_config(page_title="Visitor Analytics Dashboard", layout="wide")
 
+# Sidebar navigation and controls
+st.sidebar.header("Controls")
+nav = st.sidebar.radio("Go to:", ["Overview", "Map", "Logs"])
+
+# Clear data endpoint (you must deploy an Apps Script to clear the sheet)
+CLEAR_URL = "https://script.google.com/macros/s/YOUR_CLEAR_ENDPOINT/exec"
+
+def clear_data():
+    """Call your Apps Script endpoint to clear the sheet, then clear Streamlit cache."""
+    try:
+        resp = requests.get(CLEAR_URL)
+        if resp.status_code == 200:
+            st.sidebar.success("Data cleared successfully.")
+            st.cache_data.clear()
+        else:
+            st.sidebar.error(f"Failed to clear data (status {resp.status_code}).")
+    except Exception as e:
+        st.sidebar.error(f"Error clearing data: {e}")
+
+if st.sidebar.button("Clear All Analytics and Sheet"):
+    clear_data()
+
 # Animated header
 st.markdown("""
-    <style>
-    .animated-title {
-        font-size: 2.8em;
-        font-weight: bold;
-        background: linear-gradient(to right, #ff416c, #ff4b2b);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        animation: slide-in 1s ease-out;
-    }
-    @keyframes slide-in {
-        0% { transform: translateX(-100%); opacity: 0; }
-        100% { transform: translateX(0); opacity: 1; }
-    }
-    </style>
-    <h1 class="animated-title">Portfolio Visitor Analytics Dashboard</h1>
+<style>
+.animated-title {
+    font-size: 2.5em;
+    font-weight: bold;
+    background: linear-gradient(to right, #4e54c8, #8f94fb);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: fade-in 1s ease-out;
+}
+@keyframes fade-in {
+    from { opacity: 0; transform: translateY(-20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+</style>
+<h1 class="animated-title">Portfolio Visitor Analytics</h1>
 """, unsafe_allow_html=True)
 
-# Google Sheet public CSV link
-CSV_URL = "https://docs.google.com/spreadsheets/d/1GVzg4PtgfMFZZRA02MxXpZfBCLrcZhFOk-kIcU2vh0o/export?format=csv"
-
+# Load data from Google Sheet CSV export
 @st.cache_data(ttl=60)
 def load_data():
+    CSV_URL = (
+        "https://docs.google.com/spreadsheets/"
+        "d/1GVzg4PtgfMFZZRA02MxXpZfBCLrcZhFOk-kIcU2vh0o/"
+        "export?format=csv"
+    )
     df = pd.read_csv(CSV_URL)
     df.columns = df.columns.str.strip().str.lower()
-    return df
+    df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
+    df['lat'] = pd.to_numeric(df['lat'], errors='coerce')
+    df['lon'] = pd.to_numeric(df['lon'], errors='coerce')
+    return df.dropna(subset=['timestamp', 'lat', 'lon'])
 
-try:
-    df = load_data()
-except Exception as e:
-    st.error("Failed to load visitor data. Make sure the Google Sheet is shared publicly.")
-    st.stop()
+df = load_data()
 
-# Ensure required columns
-required_cols = {'timestamp', 'ip', 'country', 'device', 'browser', 'lat', 'lon'}
-if not required_cols.issubset(df.columns):
-    st.error("Missing required columns in the sheet.")
-    st.stop()
+# IP filter dropdown
+ips = df['ip'].unique().tolist()
+selected_ips = st.sidebar.multiselect("Filter by IP:", ips, default=ips)
+df = df[df['ip'].isin(selected_ips)]
 
-# Clean timestamp
-df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
+# Overview page
+if nav == "Overview":
+    st.subheader("Key Metrics")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total Visits", len(df))
+    c2.metric("Unique IPs", df['ip'].nunique())
+    c3.metric("Countries Tracked", df['country'].nunique())
+    top_city = df['city'].mode().iat[0] if not df['city'].mode().empty else "N/A"
+    c4.metric("Top City", top_city)
 
-# Sidebar debug info
-with st.sidebar:
-    st.header("Debug Info")
-    st.write("Detected Columns:", df.columns.tolist())
-    st.write(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    st.markdown("---")
+    st.subheader("Visits Over Time")
+    visits_by_day = df.groupby(df['timestamp'].dt.date).size().reset_index(name='visits')
+    chart = alt.Chart(visits_by_day).mark_line(point=True).encode(
+        x='timestamp:T', y='visits:Q', tooltip=['timestamp:T','visits:Q']
+    )
+    st.altair_chart(chart, use_container_width=True)
 
-# KPI metrics
-st.markdown("### Overview")
-k1, k2, k3, k4 = st.columns(4)
-k1.metric("Total Visits", len(df))
-k2.metric("Unique IPs", df['ip'].nunique())
-k3.metric("Countries", df['country'].nunique())
-k4.metric("Top City", df['city'].mode()[0] if not df['city'].isna().all() else "N/A")
-
-# Visits over time
-st.markdown("---")
-st.markdown("### Visits Over Time")
-visits_by_day = df.groupby(df['timestamp'].dt.date).size().reset_index(name='visits')
-line_chart = alt.Chart(visits_by_day).mark_line(point=True).encode(
-    x='timestamp:T',
-    y='visits:Q',
-    tooltip=['timestamp:T', 'visits:Q']
-).properties(height=300)
-st.altair_chart(line_chart, use_container_width=True)
-
-# Hourly traffic
-st.markdown("### Hourly Traffic")
-visits_by_hour = df['timestamp'].dt.hour.value_counts().sort_index().reset_index(name='visits')
-visits_by_hour.columns = ['hour', 'visits']
-hour_chart = alt.Chart(visits_by_hour).mark_bar().encode(
-    x=alt.X('hour:O', title='Hour of Day'),
-    y='visits:Q',
-    tooltip=['hour', 'visits']
-)
-st.altair_chart(hour_chart, use_container_width=True)
-
-# Top countries
-st.markdown("---")
-st.markdown("### Top Countries and Regions")
-col1, col2 = st.columns(2)
-with col1:
-    countries = df['country'].value_counts().reset_index()
-    countries.columns = ['country', 'visits']
-    st.bar_chart(countries.set_index('country'))
-with col2:
-    regions = df['region'].value_counts().head(10).reset_index()
-    regions.columns = ['region', 'visits']
-    st.bar_chart(regions.set_index('region'))
-
-# Top ISPs
-st.markdown("### Top ISPs")
-isps = df['isp'].value_counts().head(10).reset_index()
-isps.columns = ['isp', 'visits']
-st.bar_chart(isps.set_index('isp'))
-
-# Devices and browsers
-st.markdown("---")
-st.markdown("### Devices and Browsers")
-d1, d2 = st.columns(2)
-with d1:
-    devices = df['device'].value_counts().reset_index()
-    devices.columns = ['device', 'visits']
-    st.bar_chart(devices.set_index('device'))
-with d2:
-    browsers = df['browser'].value_counts().reset_index()
-    browsers.columns = ['browser', 'visits']
-    st.bar_chart(browsers.set_index('browser'))
-
-# Visitor map using Folium
-st.markdown("---")
-st.markdown("### Visitor Map using Google-style View")
-
-df_map = df.dropna(subset=['lat', 'lon'])
-df_map['lat'] = pd.to_numeric(df_map['lat'], errors='coerce')
-df_map['lon'] = pd.to_numeric(df_map['lon'], errors='coerce')
-df_map = df_map.dropna(subset=['lat', 'lon'])
-
-if not df_map.empty:
-    m = folium.Map(location=[df_map['lat'].mean(), df_map['lon'].mean()], zoom_start=2)
-
-    for _, row in df_map.iterrows():
-        folium.Marker(
+# Map page
+elif nav == "Map":
+    st.subheader("Visitor Locations Map")
+    m = folium.Map(
+        location=[df['lat'].mean(), df['lon'].mean()],
+        zoom_start=2,
+        tiles='OpenStreetMap'
+    )
+    for _, row in df.iterrows():
+        folium.CircleMarker(
             location=[row['lat'], row['lon']],
-            tooltip=f"{row['ip']}\n{row.get('city', '')}, {row.get('country', '')}",
-            popup=f"<b>IP:</b> {row['ip']}<br><b>City:</b> {row.get('city', 'N/A')}<br><b>Country:</b> {row.get('country', 'N/A')}"
+            radius=5,
+            color='blue',
+            fill=True,
+            popup=(
+                f"<b>IP:</b> {row['ip']}<br>"
+                f"<b>City:</b> {row['city']}<br>"
+                f"<b>Country:</b> {row['country']}"
+            )
         ).add_to(m)
+    st_folium(m, width='100%', height=500)
 
-    st_data = st_folium(m, width=1000, height=500)
+# Logs page
 else:
-    st.info("No valid location data available.")
-
-# Detailed visitor table
-st.markdown("---")
-st.markdown("### Detailed Visitor Log")
-st.dataframe(df.sort_values('timestamp', ascending=False))
+    st.subheader("Detailed Visitor Log")
+    st.dataframe(df.sort_values('timestamp', ascending=False))

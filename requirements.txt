@@ -2,4 +2,5 @@ streamlit
 pandas
 altair
 pydeck
-folium streamlit-folium
+folium 
+streamlit-folium

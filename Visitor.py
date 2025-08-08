@@ -2,123 +2,125 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 import pydeck as pdk
+from datetime import datetime
 
-# ✅ Correct public CSV export link for your Google Sheet
+# Page setup
+st.set_page_config(page_title="Visitor Analytics Dashboard", layout="wide")
+
+# Animated header
+st.markdown("""
+    <style>
+    .animated-title {
+        font-size: 2.8em;
+        font-weight: bold;
+        background: linear-gradient(to right, #ff416c, #ff4b2b);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        animation: slide-in 1s ease-out;
+    }
+    @keyframes slide-in {
+        0% { transform: translateX(-100%); opacity: 0; }
+        100% { transform: translateX(0); opacity: 1; }
+    }
+    </style>
+    <h1 class="animated-title">Portfolio Visitor Analytics Dashboard</h1>
+""", unsafe_allow_html=True)
+
+# Google Sheet public CSV link
 CSV_URL = "https://docs.google.com/spreadsheets/d/1GVzg4PtgfMFZZRA02MxXpZfBCLrcZhFOk-kIcU2vh0o/export?format=csv"
 
 @st.cache_data(ttl=60)
 def load_data():
     df = pd.read_csv(CSV_URL)
-    df.columns = df.columns.str.strip().str.lower()  # Clean headers
+    df.columns = df.columns.str.strip().str.lower()
     return df
 
-df = load_data()
-
-# Debug info in sidebar
-st.sidebar.header("Debug Info")
-st.sidebar.write("Detected Columns:", df.columns.tolist())
-
-# Ensure necessary columns exist
-required_cols = {'timestamp', 'ip', 'country', 'device', 'browser', 'lat', 'lon'}
-if not required_cols.issubset(df.columns):
-    st.error("One or more required columns are missing in the sheet.")
+try:
+    df = load_data()
+except Exception as e:
+    st.error("Failed to load visitor data. Make sure the Google Sheet is shared publicly.")
     st.stop()
 
-# Parse timestamp
+# Ensure required columns
+required_cols = {'timestamp', 'ip', 'country', 'device', 'browser', 'lat', 'lon'}
+if not required_cols.issubset(df.columns):
+    st.error("Missing required columns in the sheet.")
+    st.stop()
+
+# Clean timestamp
 df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
 
-# Title & KPIs
-st.title("Portfolio Visitor Analytics Dashboard")
+# Sidebar debug info
+with st.sidebar:
+    st.header("Debug Info")
+    st.write("Detected Columns:", df.columns.tolist())
+    st.write(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Total Visits", len(df))
-col2.metric("Unique IPs", df['ip'].nunique())
-col3.metric("Countries", df['country'].nunique())
-col4.metric("Top City", df['city'].mode()[0] if not df['city'].isna().all() else "N/A")
-
-st.markdown("---")
+# KPI metrics
+st.markdown("### Overview")
+k1, k2, k3, k4 = st.columns(4)
+k1.metric("Total Visits", len(df))
+k2.metric("Unique IPs", df['ip'].nunique())
+k3.metric("Countries", df['country'].nunique())
+k4.metric("Top City", df['city'].mode()[0] if not df['city'].isna().all() else "N/A")
 
 # Visits over time
-st.subheader("Visits per Day")
+st.markdown("---")
+st.markdown("### Visits Over Time")
 visits_by_day = df.groupby(df['timestamp'].dt.date).size().reset_index(name='visits')
-chart_visits = alt.Chart(visits_by_day).mark_line(point=True).encode(
+line_chart = alt.Chart(visits_by_day).mark_line(point=True).encode(
     x='timestamp:T',
     y='visits:Q',
     tooltip=['timestamp:T', 'visits:Q']
-)
-st.altair_chart(chart_visits, use_container_width=True)
+).properties(height=300)
+st.altair_chart(line_chart, use_container_width=True)
 
-# Visits by hour
-st.subheader("Visits by Hour")
+# Hourly traffic
+st.markdown("### Hourly Traffic")
 visits_by_hour = df['timestamp'].dt.hour.value_counts().sort_index().reset_index(name='visits')
 visits_by_hour.columns = ['hour', 'visits']
-chart_hour = alt.Chart(visits_by_hour).mark_bar().encode(
-    x=alt.X('hour:O', title="Hour"),
-    y=alt.Y('visits:Q'),
+hour_chart = alt.Chart(visits_by_hour).mark_bar().encode(
+    x=alt.X('hour:O', title='Hour of Day'),
+    y='visits:Q',
     tooltip=['hour', 'visits']
 )
-st.altair_chart(chart_hour, use_container_width=True)
+st.altair_chart(hour_chart, use_container_width=True)
 
 # Top countries
-st.subheader("Top Countries")
-country_counts = df['country'].value_counts().reset_index()
-country_counts.columns = ['country', 'visits']
-chart_country = alt.Chart(country_counts).mark_bar().encode(
-    x='visits:Q',
-    y=alt.Y('country:N', sort='-x'),
-    tooltip=['country', 'visits']
-)
-st.altair_chart(chart_country, use_container_width=True)
-
-# Top regions
-st.subheader("Top Regions / States")
-region_counts = df['region'].value_counts().head(10).reset_index()
-region_counts.columns = ['region', 'visits']
-chart_region = alt.Chart(region_counts).mark_bar().encode(
-    x='visits:Q',
-    y=alt.Y('region:N', sort='-x'),
-    tooltip=['region', 'visits']
-)
-st.altair_chart(chart_region, use_container_width=True)
+st.markdown("---")
+st.markdown("### Top Countries and Regions")
+col1, col2 = st.columns(2)
+with col1:
+    countries = df['country'].value_counts().reset_index()
+    countries.columns = ['country', 'visits']
+    st.bar_chart(countries.set_index('country'))
+with col2:
+    regions = df['region'].value_counts().head(10).reset_index()
+    regions.columns = ['region', 'visits']
+    st.bar_chart(regions.set_index('region'))
 
 # Top ISPs
-st.subheader("Top ISPs")
-isp_counts = df['isp'].value_counts().head(10).reset_index()
-isp_counts.columns = ['isp', 'visits']
-chart_isp = alt.Chart(isp_counts).mark_bar().encode(
-    x='visits:Q',
-    y=alt.Y('isp:N', sort='-x'),
-    tooltip=['isp', 'visits']
-)
-st.altair_chart(chart_isp, use_container_width=True)
+st.markdown("### Top ISPs")
+isps = df['isp'].value_counts().head(10).reset_index()
+isps.columns = ['isp', 'visits']
+st.bar_chart(isps.set_index('isp'))
 
 # Devices and browsers
-col5, col6 = st.columns(2)
+st.markdown("---")
+st.markdown("### Devices and Browsers")
+d1, d2 = st.columns(2)
+with d1:
+    devices = df['device'].value_counts().reset_index()
+    devices.columns = ['device', 'visits']
+    st.bar_chart(devices.set_index('device'))
+with d2:
+    browsers = df['browser'].value_counts().reset_index()
+    browsers.columns = ['browser', 'visits']
+    st.bar_chart(browsers.set_index('browser'))
 
-with col5:
-    st.subheader("Device Types")
-    device_counts = df['device'].value_counts().reset_index()
-    device_counts.columns = ['device', 'visits']
-    chart_device = alt.Chart(device_counts).mark_pie().encode(
-        theta='visits:Q',
-        color='device:N',
-        tooltip=['device', 'visits']
-    )
-    st.altair_chart(chart_device, use_container_width=True)
-
-with col6:
-    st.subheader("Browser Usage")
-    browser_counts = df['browser'].value_counts().reset_index()
-    browser_counts.columns = ['browser', 'visits']
-    chart_browser = alt.Chart(browser_counts).mark_pie().encode(
-        theta='visits:Q',
-        color='browser:N',
-        tooltip=['browser', 'visits']
-    )
-    st.altair_chart(chart_browser, use_container_width=True)
-
-# Map
-st.subheader("Visitor Map")
+# Visitor map
+st.markdown("---")
+st.markdown("### Visitor Map")
 df_map = df.dropna(subset=['lat', 'lon'])
 if not df_map.empty:
     st.pydeck_chart(pdk.Deck(
@@ -135,15 +137,16 @@ if not df_map.empty:
                 data=df_map,
                 get_position='[lon, lat]',
                 get_radius=100000,
-                get_fill_color='[255, 0, 0, 160]',
+                get_fill_color='[200, 30, 0, 160]',
                 pickable=True,
             ),
         ],
         tooltip={"text": "IP: {ip}\nCity: {city}\nCountry: {country}"}
     ))
 else:
-    st.info("No location data available for map.")
+    st.info("No valid location data to display on map.")
 
-# Visitor table
-st.subheader("Full Visitor Log")
+# Detailed visitor table
+st.markdown("---")
+st.markdown("### Detailed Visitor Log")
 st.dataframe(df.sort_values('timestamp', ascending=False))

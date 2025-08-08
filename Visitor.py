@@ -58,17 +58,6 @@ st.markdown("""
         border-radius: 8px;
     }
     
-    .clear-button {
-        background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
-        color: white;
-        border: none;
-        padding: 0.75rem 1.5rem;
-        border-radius: 25px;
-        font-weight: bold;
-        cursor: pointer;
-        transition: all 0.3s ease;
-    }
-    
     .sidebar-header {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
@@ -569,22 +558,26 @@ elif navigation == "📊 Analytics":
             col1, col2 = st.columns(2)
             
             with col1:
-                # Day of week analysis
-                day_data = filtered_df['day_name'].value_counts().reindex([
-                    'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'
-                ]).reset_index()
+                # Day of week analysis - FIXED VERSION
+                day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+                day_data = filtered_df['day_name'].value_counts().reindex(day_order).reset_index()
                 day_data.columns = ['Day', 'Visits']
                 
+                # Create a color mapping instead of using alt.condition
+                day_data['is_weekend'] = day_data['Day'].isin(['Saturday', 'Sunday'])
+                
                 chart = alt.Chart(day_data).mark_bar().encode(
-                    x=alt.X('Day:N', title='Day of Week'),
+                    x=alt.X('Day:N', title='Day of Week', sort=day_order),
                     y=alt.Y('Visits:Q', title='Number of Visits'),
-                    color=alt.condition(
-                        alt.datum.Day == 'Saturday',
-                        alt.value('red'),
-                        alt.condition(
-                            alt.datum.Day == 'Sunday',
-                            alt.value('orange'),
-                            alt.value('steelblue')
+                    color=alt.Color(
+                        'is_weekend:N',
+                        scale=alt.Scale(
+                            domain=[False, True],
+                            range=['steelblue', 'orange']
+                        ),
+                        legend=alt.Legend(
+                            title="Day Type",
+                            labelExpr="datum.value ? 'Weekend' : 'Weekday'"
                         )
                     ),
                     tooltip=['Day:N', 'Visits:Q']
@@ -742,9 +735,9 @@ else:  # Settings
         st.info("📖 Currently using public sheet access (read-only)")
         st.markdown("""
         **To enable full Google Sheets management:**
-        1. Set up Google Cloud service account[5][11]
-        2. Add credentials to Streamlit secrets[6][7]
-        3. Enable Google Sheets API[6]
+        1. Set up Google Cloud service account
+        2. Add credentials to Streamlit secrets
+        3. Enable Google Sheets API
         """)
     
     with col2:
